@@ -98,13 +98,157 @@ function authenticateToken(req, res, next) {
 }
 
 app.get("/profile", authenticateToken, async (req, res) => {
-  // req.user.userId is available here
   const result = await db.query(
     "SELECT id, name, email FROM users WHERE id = $1",
     [req.user.userId],
   );
   res.json({ user: result.rows[0] });
 });
+
+app.post("/organizations", authenticateToken, async (req, res) => {
+  const { name } = req.body;
+  const userId = req.user.userId;
+
+  if (!name) {
+    return res.status(400).json({ error: "Organization name is required" });
+  }
+
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const orgResult = await client.query(
+      "INSERT INTO organizations (name) VALUES ($1) RETURNING id, name, created_at",
+      [name],
+    );
+    const org = orgResult.rows[0];
+
+    await client.query(
+      "INSERT INTO memberships (user_id, org_id, role) VALUES ($1, $2, $3)",
+      [userId, org.id, "admin"],
+    );
+
+    await client.query("COMMIT");
+
+    res.status(201).json({ organization: org });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+function requireRole(allowedRoles) {
+  return async (req, res, next) => {
+    try {
+      const orgId = req.params.id;
+      const userId = req.user.userId;
+
+      const result = await db.query(
+        "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2",
+        [userId, orgId],
+      );
+
+      const membership = result.rows[0];
+
+      if (!membership) {
+        return res
+          .status(403)
+          .json({ error: "You are not a member of this organization" });
+      }
+
+      if (!allowedRoles.includes(membership.role)) {
+        return res
+          .status(403)
+          .json({ error: "You do not have permission to perform this action" });
+      }
+
+      req.userRole = membership.role;
+      next();
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  };
+}
+
+app.post(
+  "/organizations/:id/invite",
+  authenticateToken,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+      const { email, role } = req.body;
+
+      if (!email || !role) {
+        return res.status(400).json({ error: "Email and role are required" });
+      }
+
+      if (!["admin", "editor", "viewer"].includes(role)) {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+
+      const userResult = await db.query(
+        "SELECT id FROM users WHERE email = $1",
+        [email],
+      );
+      const user = userResult.rows[0];
+
+      if (!user) {
+        return res.status(404).json({ error: "No user found with that email" });
+      }
+
+      const existing = await db.query(
+        "SELECT id FROM memberships WHERE user_id = $1 AND org_id = $2",
+        [user.id, orgId],
+      );
+
+      if (existing.rows.length > 0) {
+        return res
+          .status(409)
+          .json({ error: "User is already a member of this organization" });
+      }
+
+      const result = await db.query(
+        "INSERT INTO memberships (user_id, org_id, role) VALUES ($1, $2, $3) RETURNING id, user_id, org_id, role",
+        [user.id, orgId, role],
+      );
+
+      res.status(201).json({ membership: result.rows[0] });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+app.get(
+  "/organizations/:id/members",
+  authenticateToken,
+  requireRole(["admin", "editor", "viewer"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+
+      const result = await db.query(
+        `SELECT users.id, users.name, users.email, memberships.role
+       FROM memberships
+       JOIN users ON users.id = memberships.user_id
+       WHERE memberships.org_id = $1`,
+        [orgId],
+      );
+
+      res.json({ members: result.rows });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}.`);
