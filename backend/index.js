@@ -3,10 +3,12 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-dotenv.config();
+import cors from "cors";
+dotenv.config({ quiet: true });
 
 const app = express();
 const port = 3000;
+app.use(cors());
 app.use(express.json());
 
 const db = new pg.Pool({
