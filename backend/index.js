@@ -4,6 +4,9 @@ import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import cors from "cors";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 dotenv.config({ quiet: true });
 
 const app = express();
@@ -19,6 +22,23 @@ const db = new pg.Pool({
   port: process.env.DB_PORT,
 });
 db.connect();
+
+const uploadDir = "uploads";
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+const upload = multer({ storage });
 
 app.post("/signup", async (req, res) => {
   try {
@@ -263,6 +283,98 @@ app.get("/organizations", authenticateToken, async (req, res) => {
     );
 
     res.json({ organizations: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post(
+  "/organizations/:id/files",
+  authenticateToken,
+  requireRole(["admin", "editor"]),
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+      const userId = req.user.userId;
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const result = await db.query(
+        `INSERT INTO files (org_id, uploaded_by, filename, original_name, mime_type, size)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, filename, original_name, mime_type, size, created_at`,
+        [
+          orgId,
+          userId,
+          req.file.filename,
+          req.file.originalname,
+          req.file.mimetype,
+          req.file.size,
+        ],
+      );
+
+      res.status(201).json({ file: result.rows[0] });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+app.get(
+  "/organizations/:id/files",
+  authenticateToken,
+  requireRole(["admin", "editor", "viewer"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+
+      const result = await db.query(
+        `SELECT files.id, files.original_name, files.mime_type, files.size, files.created_at, users.name AS uploaded_by_name
+         FROM files
+         JOIN users ON users.id = files.uploaded_by
+         WHERE files.org_id = $1
+         ORDER BY files.created_at DESC`,
+        [orgId],
+      );
+
+      res.json({ files: result.rows });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    const userId = req.user.userId;
+
+    const result = await db.query("SELECT * FROM files WHERE id = $1", [
+      fileId,
+    ]);
+    const file = result.rows[0];
+
+    if (!file) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const membership = await db.query(
+      "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2",
+      [userId, file.org_id],
+    );
+
+    if (membership.rows.length === 0) {
+      return res
+        .status(403)
+        .json({ error: "You don't have access to this file" });
+    }
+
+    res.download(path.join("uploads", file.filename), file.original_name);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
