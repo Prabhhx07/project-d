@@ -242,13 +242,32 @@ app.get(
         [orgId],
       );
 
-      res.json({ members: result.rows });
+      res.json({ members: result.rows, currentUserRole: req.userRole });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Server error" });
     }
   },
 );
+
+app.get("/organizations", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const result = await db.query(
+      `SELECT organizations.id, organizations.name, organizations.created_at, memberships.role
+       FROM memberships
+       JOIN organizations ON organizations.id = memberships.org_id
+       WHERE memberships.user_id = $1`,
+      [userId],
+    );
+
+    res.json({ organizations: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}.`);
