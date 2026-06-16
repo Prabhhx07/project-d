@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 function Dashboard() {
   const [user, setUser] = useState(null);
@@ -66,6 +66,12 @@ function Dashboard() {
         >
           Log Out
         </button>
+        <Link
+          to="/organizations"
+          className="text-sm text-blue-600 hover:underline"
+        >
+          View Organizations
+        </Link>
       </div>
     </div>
   );
