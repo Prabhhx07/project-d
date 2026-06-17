@@ -8,6 +8,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { fileQueue } from "./queue.js";
+import { WebSocketServer } from "ws";
+import { QueueEvents, Job } from "bullmq";
+import IORedis from "ioredis";
 dotenv.config({ quiet: true });
 
 const app = express();
@@ -388,6 +391,80 @@ app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}.`);
+const server = app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+const wss = new WebSocketServer({ server });
+const orgSockets = new Map(); // orgId -> Set of connected sockets
+
+wss.on("connection", async (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get("token");
+  const orgId = url.searchParams.get("orgId");
+
+  let userId;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    userId = decoded.userId;
+  } catch (err) {
+    ws.close(4001, "Unauthorized");
+    return;
+  }
+
+  const membership = await db.query(
+    "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2",
+    [userId, orgId],
+  );
+  if (membership.rows.length === 0) {
+    ws.close(4003, "Forbidden");
+    return;
+  }
+
+  if (!orgSockets.has(orgId)) {
+    orgSockets.set(orgId, new Set());
+  }
+  orgSockets.get(orgId).add(ws);
+  console.log(`User ${userId} subscribed to org ${orgId} updates`);
+
+  ws.on("close", () => {
+    orgSockets.get(orgId)?.delete(ws);
+    console.log(`User ${userId} disconnected from org ${orgId}`);
+  });
+});
+
+const eventsConnection = new IORedis({
+  host: "127.0.0.1",
+  port: 6379,
+  maxRetriesPerRequest: null,
+});
+
+const queueEvents = new QueueEvents("file-processing", {
+  connection: eventsConnection,
+});
+
+async function notifyOrg(fileId, status) {
+  const result = await db.query("SELECT org_id FROM files WHERE id = $1", [
+    fileId,
+  ]);
+  const orgId = result.rows[0]?.org_id;
+  if (orgId === undefined) return;
+
+  const sockets = orgSockets.get(String(orgId));
+  if (!sockets) return;
+
+  const message = JSON.stringify({ type: "file-status", fileId, status });
+  for (const socket of sockets) {
+    socket.send(message);
+  }
+}
+
+queueEvents.on("completed", async ({ jobId }) => {
+  const job = await Job.fromId(fileQueue, jobId);
+  if (job) await notifyOrg(job.data.fileId, "done");
+});
+
+queueEvents.on("retries-exhausted", async ({ jobId }) => {
+  const job = await Job.fromId(fileQueue, jobId);
+  if (job) await notifyOrg(job.data.fileId, "failed");
 });

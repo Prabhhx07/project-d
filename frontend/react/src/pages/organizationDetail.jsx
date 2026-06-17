@@ -40,6 +40,27 @@ function OrganizationDetail() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
+  useEffect(() => {
+    const socket = new WebSocket(
+      `ws://localhost:3000?token=${token}&orgId=${id}`,
+    );
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "file-status") {
+        setFiles((prevFiles) =>
+          prevFiles.map((file) =>
+            file.id === data.fileId ? { ...file, status: data.status } : file,
+          ),
+        );
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [id, token]);
+
   const fetchMembers = async () => {
     try {
       const response = await fetch(
