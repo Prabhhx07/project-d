@@ -7,6 +7,7 @@ import cors from "cors";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { fileQueue } from "./queue.js";
 dotenv.config({ quiet: true });
 
 const app = express();
@@ -317,6 +318,12 @@ app.post(
         ],
       );
 
+      await fileQueue.add(
+        "process-file",
+        { fileId: result.rows[0].id },
+        { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
+      );
+
       res.status(201).json({ file: result.rows[0] });
     } catch (err) {
       console.error(err);
@@ -334,7 +341,7 @@ app.get(
       const orgId = req.params.id;
 
       const result = await db.query(
-        `SELECT files.id, files.original_name, files.mime_type, files.size, files.created_at, users.name AS uploaded_by_name
+        `SELECT files.id,files.status,files.original_name, files.mime_type, files.size, files.created_at, users.name AS uploaded_by_name
          FROM files
          JOIN users ON users.id = files.uploaded_by
          WHERE files.org_id = $1
