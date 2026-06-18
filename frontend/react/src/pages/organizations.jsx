@@ -70,6 +70,35 @@ function Organizations() {
     return <p className="p-8 text-gray-600">Loading...</p>;
   }
 
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    try {
+      const response = await fetch("http://localhost:3000/profile/password", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to change password");
+      }
+
+      setPasswordSuccess("Password updated successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (err) {
+      setPasswordError(err.message);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="mx-auto max-w-md">

@@ -42,7 +42,28 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage });
+const allowedMimeTypes = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg",
+  "image/png",
+  "text/plain",
+];
+
+const upload = multer({
+  storage, // your existing diskStorage config stays as-is
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fileFilter: (req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("File type not allowed"));
+    }
+  },
+});
 
 app.post("/signup", async (req, res) => {
   try {
@@ -162,6 +183,54 @@ app.post("/organizations", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   } finally {
     client.release();
+  }
+});
+
+app.patch("/profile/password", authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: "Both current and new password are required" });
+    }
+
+    if (newPassword.length < 8) {
+      return res
+        .status(400)
+        .json({ error: "New password must be at least 8 characters" });
+    }
+
+    const userResult = await db.query(
+      "SELECT password FROM users WHERE id = $1",
+      [req.user.userId],
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const isMatch = await bcrypt.compare(
+      currentPassword,
+      userResult.rows[0].password,
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await db.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPassword,
+      req.user.userId,
+    ]);
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -425,7 +494,21 @@ app.post(
   "/organizations/:id/files",
   authenticateToken,
   requireRole(["admin", "editor"]),
-  upload.single("file"),
+
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res
+            .status(400)
+            .json({ error: "File too large. Max size is 10MB." });
+        }
+        return res.status(400).json({ error: err.message || "Upload failed" });
+      }
+      next();
+    });
+  },
+
   async (req, res) => {
     try {
       const orgId = req.params.id;
