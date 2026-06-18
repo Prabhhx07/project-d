@@ -165,6 +165,37 @@ app.post("/organizations", authenticateToken, async (req, res) => {
   }
 });
 
+app.delete(
+  "/organizations/:id",
+  authenticateToken,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+
+      const filesResult = await db.query(
+        "SELECT filename FROM files WHERE org_id = $1",
+        [orgId],
+      );
+
+      await db.query("DELETE FROM organizations WHERE id = $1", [orgId]);
+
+      for (const file of filesResult.rows) {
+        try {
+          await fs.promises.unlink(path.join("uploads", file.filename));
+        } catch (err) {
+          console.error("Failed to delete file from disk:", err);
+        }
+      }
+
+      res.json({ message: "Organization deleted" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
 function requireRole(allowedRoles) {
   return async (req, res, next) => {
     try {
@@ -274,6 +305,103 @@ app.get(
   },
 );
 
+app.patch(
+  "/organizations/:id/members/:userId",
+  authenticateToken,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+      const { userId } = req.params;
+      const { role: newRole } = req.body;
+
+      if (!["admin", "editor", "viewer"].includes(newRole)) {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+
+      const membershipResult = await db.query(
+        "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2",
+        [orgId, userId],
+      );
+
+      if (membershipResult.rows.length === 0) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+
+      const currentRole = membershipResult.rows[0].role;
+
+      if (currentRole === "admin" && newRole !== "admin") {
+        const adminCountResult = await db.query(
+          "SELECT COUNT(*) FROM memberships WHERE org_id = $1 AND role = 'admin'",
+          [orgId],
+        );
+
+        if (parseInt(adminCountResult.rows[0].count, 10) <= 1) {
+          return res.status(400).json({
+            error: "Cannot change the role of the last admin",
+          });
+        }
+      }
+
+      await db.query(
+        "UPDATE memberships SET role = $1 WHERE org_id = $2 AND user_id = $3",
+        [newRole, orgId, userId],
+      );
+
+      res.json({ message: "Role updated" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+app.delete(
+  "/organizations/:id/members/:userId",
+  authenticateToken,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+      const { userId } = req.params;
+
+      const membershipResult = await db.query(
+        "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2",
+        [orgId, userId],
+      );
+
+      if (membershipResult.rows.length === 0) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+
+      const targetRole = membershipResult.rows[0].role;
+
+      if (targetRole === "admin") {
+        const adminCountResult = await db.query(
+          "SELECT COUNT(*) FROM memberships WHERE org_id = $1 AND role = 'admin'",
+          [orgId],
+        );
+
+        if (parseInt(adminCountResult.rows[0].count, 10) <= 1) {
+          return res.status(400).json({
+            error: "Cannot remove the last admin from an organization",
+          });
+        }
+      }
+
+      await db.query(
+        "DELETE FROM memberships WHERE org_id = $1 AND user_id = $2",
+        [orgId, userId],
+      );
+
+      res.json({ message: "Member removed" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
 app.get("/organizations", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -359,6 +487,43 @@ app.get(
     }
   },
 );
+
+app.delete(
+  "/organizations/:id/files/:fileId",
+  authenticateToken,
+  requireRole(["admin", "editor"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+      const { fileId } = req.params;
+
+      const fileResult = await db.query(
+        "SELECT * FROM files WHERE id = $1 AND org_id = $2",
+        [fileId, orgId],
+      );
+
+      if (fileResult.rows.length === 0) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const file = fileResult.rows[0];
+
+      await db.query("DELETE FROM files WHERE id = $1", [fileId]);
+
+      try {
+        await fs.promises.unlink(path.join("uploads", file.filename));
+      } catch (err) {
+        console.error("Failed to delete file from disk:", err);
+      }
+
+      res.json({ message: "File deleted" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
 app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
   try {
     const fileId = req.params.fileId;
@@ -396,7 +561,7 @@ const server = app.listen(port, () => {
 });
 
 const wss = new WebSocketServer({ server });
-const orgSockets = new Map(); // orgId -> Set of connected sockets
+const orgSockets = new Map();
 
 wss.on("connection", async (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);

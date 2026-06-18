@@ -225,6 +225,113 @@ function OrganizationDetail() {
 
   const canUpload = currentUserRole === "admin" || currentUserRole === "editor";
 
+  async function handleDeleteFile(fileId) {
+    if (!window.confirm("Delete this file? This cannot be undone.")) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:3000/organizations/${id}/files/${fileId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete file");
+      }
+
+      setFiles((prevFiles) => prevFiles.filter((file) => file.id !== fileId));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete file.");
+    }
+  }
+
+  async function handleDeleteOrg() {
+    if (
+      !window.confirm(
+        "Delete this entire organization? This will permanently delete all members and files. This cannot be undone.",
+      )
+    )
+      return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:3000/organizations/${id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete organization");
+      }
+
+      navigate("/organizations");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete organization.");
+    }
+  }
+
+  async function handleRemoveMember(memberId) {
+    if (!window.confirm("Remove this member from the organization?")) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:3000/organizations/${id}/members/${memberId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to remove member");
+      }
+
+      setMembers((prevMembers) =>
+        prevMembers.filter((member) => member.id !== memberId),
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  }
+
+  async function handleChangeRole(memberId, newRole) {
+    try {
+      const response = await fetch(
+        `http://localhost:3000/organizations/${id}/members/${memberId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ role: newRole }),
+        },
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update role");
+      }
+
+      setMembers((prevMembers) =>
+        prevMembers.map((member) =>
+          member.id === memberId ? { ...member, role: newRole } : member,
+        ),
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="mx-auto max-w-md">
@@ -252,9 +359,34 @@ function OrganizationDetail() {
                   <p className="text-gray-900">{member.name}</p>
                   <p className="text-xs text-gray-500">{member.email}</p>
                 </div>
-                <span className="text-xs uppercase text-gray-400">
-                  {member.role}
-                </span>
+
+                <div className="flex items-center gap-3">
+                  {currentUserRole === "admin" ? (
+                    <select
+                      value={member.role}
+                      onChange={(e) =>
+                        handleChangeRole(member.id, e.target.value)
+                      }
+                      className="rounded border border-gray-300 px-2 py-1 text-xs uppercase text-gray-600"
+                    >
+                      <option value="admin">Admin</option>
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  ) : (
+                    <span className="text-xs uppercase text-gray-400">
+                      {member.role}
+                    </span>
+                  )}
+                  {currentUserRole === "admin" && (
+                    <button
+                      onClick={() => handleRemoveMember(member.id)}
+                      className="text-sm text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -324,6 +456,14 @@ function OrganizationDetail() {
                     >
                       Download
                     </button>
+                    {canUpload && (
+                      <button
+                        onClick={() => handleDeleteFile(file.id)}
+                        className="text-sm text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}
@@ -355,6 +495,23 @@ function OrganizationDetail() {
             {uploadSuccess && (
               <p className="mt-2 text-sm text-green-600">{uploadSuccess}</p>
             )}
+          </div>
+        )}
+        {currentUserRole === "admin" && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-sm font-medium text-red-700">
+              Danger Zone
+            </h2>
+            <p className="mb-3 text-sm text-gray-500">
+              Deleting this organization will permanently remove all members and
+              files.
+            </p>
+            <button
+              onClick={handleDeleteOrg}
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+            >
+              Delete Organization
+            </button>
           </div>
         )}
       </div>
