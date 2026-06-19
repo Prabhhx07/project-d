@@ -12,12 +12,39 @@ import { WebSocketServer } from "ws";
 import { QueueEvents, Job } from "bullmq";
 import IORedis from "ioredis";
 import rateLimit from "express-rate-limit";
+import swaggerJsdoc from "swagger-jsdoc";
+import swaggerUi from "swagger-ui-express";
 dotenv.config({ quiet: true });
 
 const app = express();
 const port = 3000;
 app.use(cors());
 app.use(express.json());
+
+const swaggerOptions = {
+  definition: {
+    openapi: "3.0.0",
+    info: {
+      title: "Project-D API",
+      version: "1.0.0",
+      description: "Multi-tenant document processing platform API",
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+      },
+    },
+    security: [{ bearerAuth: [] }],
+  },
+  apis: ["./index.js"],
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -84,6 +111,33 @@ const upload = multer({
   },
 });
 
+/**
+ * @swagger
+ * /signup:
+ *   post:
+ *     summary: Register a new user
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email, password]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *       400:
+ *         description: Missing fields or email already exists
+ */
+
 app.post("/signup", authLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -113,9 +167,38 @@ app.post("/signup", authLimiter, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /login:
+ *   post:
+ *     summary: Login and receive a JWT
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Returns JWT token
+ *       401:
+ *         description: Invalid credentials
+ */
+
 app.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
 
     const result = await db.query("SELECT * FROM users WHERE email = $1", [
       email,
@@ -161,6 +244,21 @@ function authenticateToken(req, res, next) {
   });
 }
 
+/**
+ * @swagger
+ * /profile:
+ *   get:
+ *     summary: Get current user profile
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Returns user info
+ *       401:
+ *         description: Unauthorized
+ */
+
 app.get("/profile", authenticateToken, async (req, res) => {
   const result = await db.query(
     "SELECT id, name, email FROM users WHERE id = $1",
@@ -168,6 +266,31 @@ app.get("/profile", authenticateToken, async (req, res) => {
   );
   res.json({ user: result.rows[0] });
 });
+
+/**
+ * @swagger
+ * /organizations:
+ *   post:
+ *     summary: Create a new organization
+ *     tags: [Organizations]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Organization created
+ *       401:
+ *         description: Unauthorized
+ */
 
 app.post("/organizations", authenticateToken, async (req, res) => {
   const { name } = req.body;
@@ -204,6 +327,33 @@ app.post("/organizations", authenticateToken, async (req, res) => {
     client.release();
   }
 });
+
+/**
+ * @swagger
+ * /profile/password:
+ *   patch:
+ *     summary: Change current user's password
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password updated
+ *       401:
+ *         description: Current password incorrect
+ */
 
 app.patch("/profile/password", authenticateToken, async (req, res) => {
   try {
@@ -252,6 +402,27 @@ app.patch("/profile/password", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+/**
+ * @swagger
+ * /organizations/{id}:
+ *   delete:
+ *     summary: Delete an organization (admin only)
+ *     tags: [Organizations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Organization deleted
+ *       403:
+ *         description: Forbidden
+ */
 
 app.delete(
   "/organizations/:id",
@@ -318,6 +489,40 @@ function requireRole(allowedRoles) {
   };
 }
 
+/**
+ * @swagger
+ * /organizations/{id}/invite:
+ *   post:
+ *     summary: Invite a user to the organization (admin only)
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, role]
+ *             properties:
+ *               email:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [admin, editor, viewer]
+ *     responses:
+ *       201:
+ *         description: Member invited
+ *       403:
+ *         description: Forbidden
+ */
+
 app.post(
   "/organizations/:id/invite",
   authenticateToken,
@@ -369,6 +574,25 @@ app.post(
   },
 );
 
+/**
+ * @swagger
+ * /organizations/{id}/members:
+ *   get:
+ *     summary: List members of an organization
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of members
+ */
+
 app.get(
   "/organizations/:id/members",
   authenticateToken,
@@ -392,6 +616,64 @@ app.get(
     }
   },
 );
+
+/**
+ * @swagger
+ * /organizations/{id}/members/{userId}:
+ *   patch:
+ *     summary: Change a member's role (admin only)
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [role]
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [admin, editor, viewer]
+ *     responses:
+ *       200:
+ *         description: Role updated
+ *       400:
+ *         description: Cannot change last admin
+ *   delete:
+ *     summary: Remove a member from organization (admin only)
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Member removed
+ *       400:
+ *         description: Cannot remove last admin
+ */
 
 app.patch(
   "/organizations/:id/members/:userId",
@@ -444,6 +726,34 @@ app.patch(
   },
 );
 
+/**
+ * @swagger
+ * /organizations/{id}/members/{userId}:
+ *   delete:
+ *     summary: Remove a member from organization (admin only)
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Member removed
+ *       400:
+ *         description: Cannot remove last admin
+ *       404:
+ *         description: Member not found
+ */
+
 app.delete(
   "/organizations/:id/members/:userId",
   authenticateToken,
@@ -490,6 +800,19 @@ app.delete(
   },
 );
 
+/**
+ * @swagger
+ * /organizations:
+ *   get:
+ *     summary: List organizations for current user
+ *     tags: [Organizations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of organizations with user role
+ */
+
 app.get("/organizations", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -508,6 +831,51 @@ app.get("/organizations", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+/**
+ * @swagger
+ * /organizations/{id}/files:
+ *   post:
+ *     summary: Upload a file to an organization (admin/editor only)
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: File uploaded and queued for processing
+ *       400:
+ *         description: No file or invalid file type/size
+ *   get:
+ *     summary: List files in an organization
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of files with status
+ */
 
 app.post(
   "/organizations/:id/files",
@@ -565,6 +933,27 @@ app.post(
   },
 );
 
+/**
+ * @swagger
+ * /organizations/{id}/files:
+ *   get:
+ *     summary: List files in an organization
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of files with status
+ *       403:
+ *         description: Forbidden
+ */
+
 app.get(
   "/organizations/:id/files",
   authenticateToken,
@@ -599,6 +988,32 @@ app.get(
     }
   },
 );
+
+/**
+ * @swagger
+ * /organizations/{id}/files/{fileId}:
+ *   delete:
+ *     summary: Delete a file (admin/editor only)
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: fileId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: File deleted
+ *       404:
+ *         description: File not found
+ */
 
 app.delete(
   "/organizations/:id/files/:fileId",
@@ -635,6 +1050,29 @@ app.delete(
     }
   },
 );
+
+/**
+ * @swagger
+ * /files/{fileId}/download:
+ *   get:
+ *     summary: Download a file
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: fileId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: File download
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: File not found
+ */
 
 app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
   try {
@@ -747,3 +1185,5 @@ queueEvents.on("retries-exhausted", async ({ jobId }) => {
   const job = await Job.fromId(fileQueue, jobId);
   if (job) await notifyOrg(job.data.fileId, "failed");
 });
+
+export default app;

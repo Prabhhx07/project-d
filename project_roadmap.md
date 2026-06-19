@@ -33,6 +33,7 @@
 ## Roadmap (Milestone-Based)
 
 ### Milestone 1 — Core Foundation (Weeks 1-2)
+
 Goal: Get a working full-stack skeleton with auth and basic CRUD.
 
 - Set up backend project structure, connect to Postgres, set up ORM and initial schema (Users, Organizations, Files).
@@ -41,6 +42,7 @@ Goal: Get a working full-stack skeleton with auth and basic CRUD.
 - Deploy a minimal version early — even just auth working end-to-end deployed to Vercel + Render. Having something live from week one keeps you motivated and gives you a safety net if later milestones run long.
 
 ### Milestone 2 — Multi-Tenancy & RBAC (Weeks 3-4)
+
 Goal: Support multiple organizations with role-based permissions.
 
 - Extend schema: Organizations, Memberships (linking users to orgs with a role: admin/editor/viewer).
@@ -50,6 +52,7 @@ Goal: Support multiple organizations with role-based permissions.
 - Write your first tests here — test that permission checks correctly block/allow actions for each role.
 
 ### Milestone 3 — File Upload & Storage (Weeks 5-6)
+
 Goal: Users can upload files tied to their org/workspace.
 
 - Implement file upload endpoint, store metadata in Postgres (filename, uploader, org, status: "pending/processing/done").
@@ -57,6 +60,7 @@ Goal: Users can upload files tied to their org/workspace.
 - Frontend: file list view, upload UI with progress indicator.
 
 ### Milestone 4 — Background Processing with Queues (Weeks 7-8)
+
 Goal: Process uploaded files asynchronously instead of blocking the request.
 
 - Set up Redis + BullMQ/Celery.
@@ -66,6 +70,7 @@ Goal: Process uploaded files asynchronously instead of blocking the request.
 - Add retry logic for failed jobs — this is a detail interviewers specifically probe for.
 
 ### Milestone 5 — Real-Time Notifications (Week 9)
+
 Goal: Notify users when their file processing is complete without requiring a page refresh.
 
 - Set up Socket.io/WebSockets — when a worker finishes a job, emit an event to the relevant user's connected client.
@@ -73,20 +78,23 @@ Goal: Notify users when their file processing is complete without requiring a pa
 - Fallback: if websockets feel like too much, polling with periodic refetches is acceptable but less impressive.
 
 ### Milestone 6 — Caching & Rate Limiting (Week 10)
+
 Goal: Use Redis for performance and protection against abuse.
 
 - Cache expensive/frequent queries (e.g. org member lists, dashboard stats) with sensible TTLs and cache invalidation on writes.
 - Add rate limiting middleware on upload and auth endpoints (e.g. max 5 uploads per minute per user) using Redis counters.
-- This is a good place to write a short blog post or README section explaining your caching strategy — interviewers love candidates who can articulate *why*, not just *what*.
+- This is a good place to write a short blog post or README section explaining your caching strategy — interviewers love candidates who can articulate _why_, not just _what_.
 
 ### Milestone 7 — API Documentation & Testing (Week 11)
+
 Goal: Make the API self-documenting and well-tested.
 
 - Add Swagger/OpenAPI docs for all endpoints.
 - Write integration tests covering: auth flows, permission edge cases, upload + processing flow, rate limiting.
-- Aim for meaningful coverage of business logic rather than 100% coverage of everything — interviewers care more about *what* you tested and *why*.
+- Aim for meaningful coverage of business logic rather than 100% coverage of everything — interviewers care more about _what_ you tested and _why_.
 
 ### Milestone 8 — CI/CD Pipeline (Week 12)
+
 Goal: Automate testing and deployment.
 
 - GitHub Actions workflow: run lint + tests on every PR.
@@ -94,28 +102,16 @@ Goal: Automate testing and deployment.
 - Add a status badge to your README — small detail, but it signals professionalism.
 
 ### Milestone 9 — Audit Logging & Analytics Dashboard (Weeks 13-14, optional/stretch)
+
 Goal: Add enterprise-feel features that differentiate your project.
 
 - Audit log table: record key actions (file uploaded, role changed, member invited) with timestamp and actor.
 - Simple analytics dashboard: charts showing uploads over time, storage used per org, processing success/failure rates (use Recharts or Chart.js on the frontend).
 
 ### Milestone 10 — Polish & Documentation (Week 15)
+
 Goal: Make the project presentable for recruiters.
 
 - Write a thorough README: architecture diagram (even a simple one), setup instructions, tech stack rationale, and screenshots/GIFs of the app in action.
 - Record a short demo video (2-3 minutes) walking through the key features — extremely useful to link in applications.
 - Clean up commit history if needed, and make sure the deployed version is stable and doesn't crash on first load.
-
----
-
-## Tips for Pacing
-
-This roadmap assumes roughly 15 weeks at a steady part-time pace (a few hours most days). If you have less time, Milestones 1-4 alone already form a solid, demoable project — everything after that adds depth. Don't feel pressured to do all 10 milestones before applying; a working version of the first 5-6 is already stronger than most internship applicants' projects.
-
-## Talking Points This Project Gives You for Interviews
-
-- "Walk me through your database schema and why you designed it that way" (multi-tenancy, RBAC)
-- "How do you handle long-running tasks in a web app?" (queues, workers)
-- "How would you scale this if traffic increased 10x?" (caching, queue workers, read replicas)
-- "How do you ensure your API is secure?" (auth, rate limiting, permission checks)
-- "Tell me about a bug you had to debug" (almost guaranteed to happen with async job processing — keep notes on real issues you hit)
