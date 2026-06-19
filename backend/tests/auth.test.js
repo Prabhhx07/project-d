@@ -1,12 +1,11 @@
-import { jest, describe, it, expect, beforeEach } from "@jest/globals";
-const { default: app, server } = await import("../index.js");
-import { afterAll } from "@jest/globals";
-
-afterAll(async () => {
-  await new Promise((resolve) => {
-    server.close(resolve);
-  });
-});
+import {
+  jest,
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterAll,
+} from "@jest/globals";
 
 process.env.JWT_SECRET = "test-secret";
 
@@ -52,10 +51,14 @@ jest.unstable_mockModule("swagger-jsdoc", () => ({
   default: jest.fn(() => ({})),
 }));
 
-const { default: app } = await import("../index.js");
+const { default: app, server } = await import("../index.js");
 const request = (await import("supertest")).default;
 const bcrypt = (await import("bcrypt")).default;
 const jwt = (await import("jsonwebtoken")).default;
+
+afterAll(async () => {
+  await new Promise((resolve) => server.close(resolve));
+});
 
 describe("POST /signup", () => {
   beforeEach(() => mockQuery.mockReset());
