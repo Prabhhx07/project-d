@@ -1,5 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from "@jest/globals";
+const { default: app, server } = await import("../index.js");
+import { afterAll } from "@jest/globals";
 
+afterAll(async () => {
+  await new Promise((resolve) => {
+    server.close(resolve);
+  });
+});
 
 process.env.JWT_SECRET = "test-secret";
 

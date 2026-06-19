@@ -1106,7 +1106,7 @@ app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
   }
 });
 
-const server = app.listen(port, () => {
+export const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
 
