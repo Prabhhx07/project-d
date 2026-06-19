@@ -7,16 +7,35 @@ import cors from "cors";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { fileQueue } from "./queue.js";
+import { fileQueue, connection } from "./queue.js";
 import { WebSocketServer } from "ws";
 import { QueueEvents, Job } from "bullmq";
 import IORedis from "ioredis";
+import rateLimit from "express-rate-limit";
 dotenv.config({ quiet: true });
 
 const app = express();
 const port = 3000;
 app.use(cors());
 app.use(express.json());
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: { error: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many login attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
 
 const db = new pg.Pool({
   user: process.env.DB_USER,
@@ -52,7 +71,7 @@ const allowedMimeTypes = [
 ];
 
 const upload = multer({
-  storage, // your existing diskStorage config stays as-is
+  storage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
   },
@@ -65,7 +84,7 @@ const upload = multer({
   },
 });
 
-app.post("/signup", async (req, res) => {
+app.post("/signup", authLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
@@ -94,7 +113,7 @@ app.post("/signup", async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -537,7 +556,7 @@ app.post(
         { fileId: result.rows[0].id },
         { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
       );
-
+      await connection.del(`files:${orgId}`);
       res.status(201).json({ file: result.rows[0] });
     } catch (err) {
       console.error(err);
@@ -553,15 +572,25 @@ app.get(
   async (req, res) => {
     try {
       const orgId = req.params.id;
+      const cacheKey = `files:${orgId}`;
+
+      const cached = await connection.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for org ${orgId} files`);
+        return res.json({ files: JSON.parse(cached) });
+      }
+      console.log(`Cache miss for org ${orgId} files`);
 
       const result = await db.query(
-        `SELECT files.id,files.status,files.original_name, files.mime_type, files.size, files.created_at, users.name AS uploaded_by_name
+        `SELECT files.id, files.status, files.original_name, files.mime_type, files.size, files.created_at, users.name AS uploaded_by_name
          FROM files
          JOIN users ON users.id = files.uploaded_by
          WHERE files.org_id = $1
          ORDER BY files.created_at DESC`,
         [orgId],
       );
+
+      await connection.set(cacheKey, JSON.stringify(result.rows), "EX", 60);
 
       res.json({ files: result.rows });
     } catch (err) {
@@ -592,7 +621,7 @@ app.delete(
       const file = fileResult.rows[0];
 
       await db.query("DELETE FROM files WHERE id = $1", [fileId]);
-
+      await connection.del(`files:${orgId}`);
       try {
         await fs.promises.unlink(path.join("uploads", file.filename));
       } catch (err) {
@@ -697,6 +726,8 @@ async function notifyOrg(fileId, status) {
   ]);
   const orgId = result.rows[0]?.org_id;
   if (orgId === undefined) return;
+
+  await connection.del(`files:${orgId}`);
 
   const sockets = orgSockets.get(String(orgId));
   if (!sockets) return;
