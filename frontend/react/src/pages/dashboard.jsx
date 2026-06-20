@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { API_URL, WS_URL } from "../config.js";
 
 function Dashboard() {
   const [user, setUser] = useState(null);
@@ -21,7 +22,7 @@ function Dashboard() {
       }
 
       try {
-        const response = await fetch("http://localhost:3000/profile", {
+        const response = await fetch(`${API_URL}/profile`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -57,7 +58,7 @@ function Dashboard() {
     setPasswordSuccess("");
 
     try {
-      const response = await fetch("http://localhost:3000/profile/password", {
+      const response = await fetch(`${API_URL}/profile/password`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

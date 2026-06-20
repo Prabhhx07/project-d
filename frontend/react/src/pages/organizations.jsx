@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { API_URL, WS_URL } from "../config.js";
 
 function Organizations() {
   const [orgs, setOrgs] = useState([]);
@@ -11,7 +12,7 @@ function Organizations() {
 
   const fetchOrgs = async () => {
     try {
-      const response = await fetch("http://localhost:3000/organizations", {
+      const response = await fetch(`${API_URL}/organizations`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -42,7 +43,7 @@ function Organizations() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:3000/organizations", {
+      const response = await fetch(`${API_URL}/organizations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -76,7 +77,7 @@ function Organizations() {
     setPasswordSuccess("");
 
     try {
-      const response = await fetch("http://localhost:3000/profile/password", {
+      const response = await fetch(`${API_URL}/profile/password`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { API_URL, WS_URL } from "../config.js";
 
 function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
+  setSubmitting(true);
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
     try {
-      const response = await fetch("http://localhost:3000/signup", {
+      const response = await fetch(`${API_URL}/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password }),
@@ -30,6 +33,8 @@ function Signup() {
     } catch (err) {
       console.error(err);
       setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -77,9 +82,10 @@ function Signup() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            disabled={submitting}
+            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Sign Up
+            {submitting ? "signing up..." : "sign up"}
           </button>
         </form>
         <p className="mt-4 text-sm text-gray-600">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { API_URL, WS_URL } from "../config.js";
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -38,13 +39,13 @@ function OrganizationDetail() {
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState("");
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    const socket = new WebSocket(
-      `ws://localhost:3000?token=${token}&orgId=${id}`,
-    );
+    const socket = new WebSocket(`${WS_URL}?token=${token}&orgId=${id}`);
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -79,12 +80,9 @@ function OrganizationDetail() {
 
   const fetchMembers = async () => {
     try {
-      const response = await fetch(
-        `http://localhost:3000/organizations/${id}/members`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/organizations/${id}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         if (response.status === 403) {
@@ -108,12 +106,9 @@ function OrganizationDetail() {
 
   const fetchFiles = async () => {
     try {
-      const response = await fetch(
-        `http://localhost:3000/organizations/${id}/files`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/organizations/${id}/files`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) return;
 
@@ -127,7 +122,7 @@ function OrganizationDetail() {
   const fetchAuditLogs = async () => {
     try {
       const response = await fetch(
-        `http://localhost:3000/organizations/${id}/audit-logs`,
+        `${API_URL}/organizations/${id}/audit-logs`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const data = await response.json();
@@ -142,18 +137,17 @@ function OrganizationDetail() {
     setError("");
     setInviteSuccess("");
 
+    setInviting(true);
+
     try {
-      const response = await fetch(
-        `http://localhost:3000/organizations/${id}/invite`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      const response = await fetch(`${API_URL}/organizations/${id}/invite`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      });
 
       const data = await response.json();
 
@@ -168,6 +162,8 @@ function OrganizationDetail() {
     } catch (err) {
       console.error(err);
       setError("Something went wrong. Please try again.");
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -180,19 +176,16 @@ function OrganizationDetail() {
       setUploadError("Please select a file");
       return;
     }
-
+    setUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
 
     try {
-      const response = await fetch(
-        `http://localhost:3000/organizations/${id}/files`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        },
-      );
+      const response = await fetch(`${API_URL}/organizations/${id}/files`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
 
       const data = await response.json();
 
@@ -208,17 +201,16 @@ function OrganizationDetail() {
     } catch (err) {
       console.error(err);
       setUploadError("Something went wrong. Please try again.");
+    } finally {
+      setUploading(false);
     }
   };
 
   const handleDownload = async (fileId, fileName) => {
     try {
-      const response = await fetch(
-        `http://localhost:3000/files/${fileId}/download`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/files/${fileId}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         setError("Failed to download file");
@@ -245,7 +237,7 @@ function OrganizationDetail() {
 
     try {
       const response = await fetch(
-        `http://localhost:3000/organizations/${id}/files/${fileId}`,
+        `${API_URL}/organizations/${id}/files/${fileId}`,
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
@@ -273,13 +265,10 @@ function OrganizationDetail() {
       return;
 
     try {
-      const response = await fetch(
-        `http://localhost:3000/organizations/${id}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/organizations/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         throw new Error("Failed to delete organization");
@@ -297,7 +286,7 @@ function OrganizationDetail() {
 
     try {
       const response = await fetch(
-        `http://localhost:3000/organizations/${id}/members/${memberId}`,
+        `${API_URL}/organizations/${id}/members/${memberId}`,
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
@@ -322,7 +311,7 @@ function OrganizationDetail() {
   async function handleChangeRole(memberId, newRole) {
     try {
       const response = await fetch(
-        `http://localhost:3000/organizations/${id}/members/${memberId}`,
+        `${API_URL}/organizations/${id}/members/${memberId}`,
         {
           method: "PATCH",
           headers: {
@@ -349,9 +338,12 @@ function OrganizationDetail() {
       alert(err.message);
     }
   }
-
   if (loading) {
-    return <p className="p-8 text-gray-600">Loading...</p>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      </div>
+    );
   }
 
   const canUpload = currentUserRole === "admin" || currentUserRole === "editor";
@@ -441,9 +433,10 @@ function OrganizationDetail() {
               </select>
               <button
                 type="submit"
-                className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                disabled={submitting}
+                className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Send Invite
+                {submitting ? "inviting" : "invite"}
               </button>
             </form>
             {inviteSuccess && (
@@ -508,9 +501,10 @@ function OrganizationDetail() {
               />
               <button
                 type="submit"
-                className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                disabled={submitting}
+                className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Upload
+                {submitting ? "uploading" : "upload"}
               </button>
             </form>
             {uploadError && (

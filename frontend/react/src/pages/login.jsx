@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { API_URL, WS_URL } from "../config.js";
 
 function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
+    setSubmitting(true);
+
     try {
-      const response = await fetch("http://localhost:3000/login", {
+      const response = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -30,6 +34,8 @@ function Login() {
     } catch (err) {
       console.error(err);
       setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -65,9 +71,10 @@ function Login() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            disabled={submitting}
+            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Log In
+            {submitting ? "Logging in..." : "Log In"}
           </button>
         </form>
         <p className="mt-4 text-sm text-gray-600">
