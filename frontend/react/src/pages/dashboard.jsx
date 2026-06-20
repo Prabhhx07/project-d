@@ -1,56 +1,51 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { API_URL, WS_URL } from "../config.js";
+import { useNavigate, useOutletContext } from "react-router-dom";
+import { API_URL } from "../config.js";
+import { BuildingIcon, FolderIcon, KeyIcon } from "../components/icons.jsx";
 
 function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user } = useOutletContext();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [stats, setStats] = useState({ orgCount: 0, fileCount: 0 });
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-
+    const fetchStats = async () => {
       try {
-        const response = await fetch(`${API_URL}/profile`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        const orgsRes = await fetch(`${API_URL}/organizations`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
+        if (orgsRes.ok) {
+          const orgsData = await orgsRes.json();
+          const organizations = orgsData.organizations || [];
+          let totalFiles = 0;
 
-        if (!response.ok) {
-          localStorage.removeItem("token");
-          navigate("/login");
-          return;
+          for (const org of organizations) {
+            try {
+              const filesRes = await fetch(
+                `${API_URL}/organizations/${org.id}/files`,
+                { headers: { Authorization: `Bearer ${token}` } },
+              );
+              if (filesRes.ok) {
+                const filesData = await filesRes.json();
+                totalFiles += (filesData.files || []).length;
+              }
+            } catch {}
+          }
+
+          setStats({ orgCount: organizations.length, fileCount: totalFiles });
         }
-
-        const data = await response.json();
-        setUser(data.user);
       } catch (err) {
         console.error(err);
-        navigate("/login");
-      } finally {
-        setLoading(false);
       }
     };
 
-    fetchProfile();
-  }, [navigate]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    navigate("/login");
-  };
+    fetchStats();
+  }, [token]);
 
   async function handleChangePassword(e) {
     e.preventDefault();
@@ -81,71 +76,120 @@ function Dashboard() {
     }
   }
 
-  if (loading) {
-    return <p>Loading...</p>;
-  }
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-md space-y-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-          <h1 className="mb-4 text-2xl font-semibold text-gray-900">
-            Dashboard
-          </h1>
-          {user && (
-            <div className="mb-6 space-y-1 text-gray-700">
-              <p>Welcome, {user.name}</p>
-              <p className="text-sm text-gray-500">{user.email}</p>
+    <div className="animate-fade-in p-6 lg:p-10">
+      <div className="mx-auto max-w-3xl space-y-8">
+        {/* Welcome card */}
+        <div className="card p-8">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary tracking-tight">
+                {getGreeting()}, {user?.name?.split(" ")[0] || "there"} 👋
+              </h1>
+              <p className="mt-1 text-text-muted">
+                Here's what's happening across your workspaces.
+              </p>
             </div>
-          )}
-          <button
-            onClick={handleLogout}
-            className="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900"
-          >
-            Log Out
-          </button>
-          <Link
-            to="/organizations"
-            className="text-sm text-blue-600 hover:underline"
-          >
-            View Organizations
-          </Link>
+          </div>
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-3 text-sm font-medium text-gray-700">
-            Change Password
-          </h2>
-          <form onSubmit={handleChangePassword} className="space-y-3">
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Current password"
-              required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="New password"
-              required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
+        {/* Stats row */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <button
+            onClick={() => navigate("/organizations")}
+            className="card group flex items-center gap-4 p-6 text-left transition-all hover:shadow-md hover:border-accent/20"
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-light text-accent transition-transform group-hover:scale-105">
+              <BuildingIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-text-primary tracking-tight">
+                {stats.orgCount}
+              </p>
+              <p className="text-sm text-text-muted">Organizations</p>
+            </div>
+          </button>
+
+          <div className="card flex items-center gap-4 p-6">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-success-light text-success">
+              <FolderIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-text-primary tracking-tight">
+                {stats.fileCount}
+              </p>
+              <p className="text-sm text-text-muted">Total Files</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Change Password */}
+        <div className="card p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <KeyIcon className="h-5 w-5 text-text-muted" />
+            <h2 className="text-base font-semibold text-text-primary">
+              Change Password
+            </h2>
+          </div>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <label
+                htmlFor="current-password"
+                className="mb-1.5 block text-sm font-medium text-text-secondary"
+              >
+                Current password
+              </label>
+              <input
+                id="current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="input-field max-w-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="new-password"
+                className="mb-1.5 block text-sm font-medium text-text-secondary"
+              >
+                New password
+              </label>
+              <input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                placeholder="Min. 8 characters"
+                className="input-field max-w-sm"
+              />
+            </div>
+
+            {passwordError && (
+              <div className="rounded-lg bg-danger-light px-4 py-3 text-sm text-danger">
+                {passwordError}
+              </div>
+            )}
+            {passwordSuccess && (
+              <div className="rounded-lg bg-success-light px-4 py-3 text-sm text-success">
+                {passwordSuccess}
+              </div>
+            )}
+
+            <button type="submit" className="btn-primary">
               Update Password
             </button>
           </form>
-          {passwordError && (
-            <p className="mt-2 text-sm text-red-600">{passwordError}</p>
-          )}
-          {passwordSuccess && (
-            <p className="mt-2 text-sm text-green-600">{passwordSuccess}</p>
-          )}
         </div>
       </div>
     </div>
