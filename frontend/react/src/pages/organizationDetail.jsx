@@ -29,6 +29,7 @@ function OrganizationDetail() {
   const [members, setMembers] = useState([]);
   const [currentUserRole, setCurrentUserRole] = useState(null);
   const [files, setFiles] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
   const [selectedFile, setSelectedFile] = useState(null);
@@ -60,6 +61,21 @@ function OrganizationDetail() {
       socket.close();
     };
   }, [id, token]);
+
+  useEffect(() => {
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+    fetchMembers();
+    fetchFiles();
+  }, [id]);
+
+  useEffect(() => {
+    if (currentUserRole === "admin") {
+      fetchAuditLogs();
+    }
+  }, [currentUserRole]);
 
   const fetchMembers = async () => {
     try {
@@ -108,14 +124,18 @@ function OrganizationDetail() {
     }
   };
 
-  useEffect(() => {
-    if (!token) {
-      navigate("/login");
-      return;
+  const fetchAuditLogs = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:3000/organizations/${id}/audit-logs`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await response.json();
+      setAuditLogs(data.logs || []);
+    } catch (err) {
+      console.error(err);
     }
-    fetchMembers();
-    fetchFiles();
-  }, [id]);
+  };
 
   const handleInvite = async (e) => {
     e.preventDefault();
@@ -184,6 +204,7 @@ function OrganizationDetail() {
       setSelectedFile(null);
       setUploadSuccess("File uploaded successfully");
       fetchFiles();
+      fetchAuditLogs();
     } catch (err) {
       console.error(err);
       setUploadError("Something went wrong. Please try again.");
@@ -219,12 +240,6 @@ function OrganizationDetail() {
     }
   };
 
-  if (loading) {
-    return <p className="p-8 text-gray-600">Loading...</p>;
-  }
-
-  const canUpload = currentUserRole === "admin" || currentUserRole === "editor";
-
   async function handleDeleteFile(fileId) {
     if (!window.confirm("Delete this file? This cannot be undone.")) return;
 
@@ -242,6 +257,7 @@ function OrganizationDetail() {
       }
 
       setFiles((prevFiles) => prevFiles.filter((file) => file.id !== fileId));
+      fetchAuditLogs();
     } catch (err) {
       console.error(err);
       alert("Failed to delete file.");
@@ -296,6 +312,7 @@ function OrganizationDetail() {
       setMembers((prevMembers) =>
         prevMembers.filter((member) => member.id !== memberId),
       );
+      fetchAuditLogs();
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -326,11 +343,18 @@ function OrganizationDetail() {
           member.id === memberId ? { ...member, role: newRole } : member,
         ),
       );
+      fetchAuditLogs();
     } catch (err) {
       console.error(err);
       alert(err.message);
     }
   }
+
+  if (loading) {
+    return <p className="p-8 text-gray-600">Loading...</p>;
+  }
+
+  const canUpload = currentUserRole === "admin" || currentUserRole === "editor";
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -472,7 +496,7 @@ function OrganizationDetail() {
         </div>
 
         {canUpload && (
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="mb-3 text-sm font-medium text-gray-700">
               Upload a file
             </h2>
@@ -497,6 +521,44 @@ function OrganizationDetail() {
             )}
           </div>
         )}
+
+        {currentUserRole === "admin" && auditLogs.length > 0 && (
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-sm font-medium text-gray-700">
+              Audit Log
+            </h2>
+            <div className="space-y-2">
+              {auditLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex items-start justify-between rounded-md bg-gray-50 px-3 py-2 text-sm"
+                >
+                  <div>
+                    <span className="font-medium text-gray-800">
+                      {log.performed_by || "Unknown"}
+                    </span>
+                    <span className="mx-1 text-gray-500">·</span>
+                    <span className="text-gray-600">{log.action}</span>
+                    {log.metadata?.filename && (
+                      <span className="ml-1 text-gray-500">
+                        ({log.metadata.filename})
+                      </span>
+                    )}
+                    {log.metadata?.from && (
+                      <span className="ml-1 text-gray-500">
+                        ({log.metadata.from} → {log.metadata.to})
+                      </span>
+                    )}
+                  </div>
+                  <span className="ml-4 shrink-0 text-xs text-gray-400">
+                    {new Date(log.created_at).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {currentUserRole === "admin" && (
           <div className="mb-6 rounded-lg border border-red-200 bg-white p-6 shadow-sm">
             <h2 className="mb-3 text-sm font-medium text-red-700">

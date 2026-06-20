@@ -111,6 +111,32 @@ const upload = multer({
   },
 });
 
+async function createAuditLog(
+  orgId,
+  userId,
+  action,
+  targetType = null,
+  targetId = null,
+  metadata = null,
+) {
+  try {
+    await db.query(
+      `INSERT INTO audit_logs (org_id, user_id, action, target_type, target_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        orgId,
+        userId,
+        action,
+        targetType,
+        targetId,
+        metadata ? JSON.stringify(metadata) : null,
+      ],
+    );
+  } catch (err) {
+    console.error("Failed to write audit log:", err);
+  }
+}
+
 /**
  * @swagger
  * /signup:
@@ -432,11 +458,20 @@ app.delete(
     try {
       const orgId = req.params.id;
 
-      const filesResult = await db.query(
-        "SELECT filename FROM files WHERE org_id = $1",
+      const orgResult = await db.query(
+        "SELECT name FROM organizations WHERE id = $1",
         [orgId],
       );
+      const orgName = orgResult.rows[0]?.name;
 
+      await createAuditLog(
+        orgId,
+        req.user.userId,
+        "org.delete",
+        "organization",
+        orgId,
+        { name: orgName },
+      );
       await db.query("DELETE FROM organizations WHERE id = $1", [orgId]);
 
       for (const file of filesResult.rows) {
@@ -566,6 +601,14 @@ app.post(
         [user.id, orgId, role],
       );
 
+      await createAuditLog(
+        orgId,
+        req.user.userId,
+        "member.invite",
+        "user",
+        user.id,
+        { email: email, role: role },
+      );
       res.status(201).json({ membership: result.rows[0] });
     } catch (err) {
       console.error(err);
@@ -717,7 +760,14 @@ app.patch(
         "UPDATE memberships SET role = $1 WHERE org_id = $2 AND user_id = $3",
         [newRole, orgId, userId],
       );
-
+      await createAuditLog(
+        orgId,
+        req.user.userId,
+        "member.role_change",
+        "user",
+        userId,
+        { from: currentRole, to: newRole },
+      );
       res.json({ message: "Role updated" });
     } catch (err) {
       console.error(err);
@@ -790,6 +840,14 @@ app.delete(
       await db.query(
         "DELETE FROM memberships WHERE org_id = $1 AND user_id = $2",
         [orgId, userId],
+      );
+
+      await createAuditLog(
+        orgId,
+        req.user.userId,
+        "member.remove",
+        "user",
+        userId,
       );
 
       res.json({ message: "Member removed" });
@@ -925,6 +983,16 @@ app.post(
         { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
       );
       await connection.del(`files:${orgId}`);
+      await createAuditLog(
+        orgId,
+        userId,
+        "file.upload",
+        "file",
+        result.rows[0].id,
+        {
+          filename: req.file.originalname,
+        },
+      );
       res.status(201).json({ file: result.rows[0] });
     } catch (err) {
       console.error(err);
@@ -1043,6 +1111,14 @@ app.delete(
         console.error("Failed to delete file from disk:", err);
       }
 
+      await createAuditLog(
+        orgId,
+        req.user.userId,
+        "file.delete",
+        "file",
+        fileId,
+        { filename: file.original_name },
+      );
       res.json({ message: "File deleted" });
     } catch (err) {
       console.error(err);
@@ -1105,6 +1181,32 @@ app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+app.get(
+  "/organizations/:id/audit-logs",
+  authenticateToken,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const orgId = req.params.id;
+
+      const result = await db.query(
+        `SELECT audit_logs.*, users.name AS performed_by
+         FROM audit_logs
+         LEFT JOIN users ON users.id = audit_logs.user_id
+         WHERE audit_logs.org_id = $1
+         ORDER BY audit_logs.created_at DESC
+         LIMIT 50`,
+        [orgId],
+      );
+
+      res.json({ logs: result.rows });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
 
 export const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
