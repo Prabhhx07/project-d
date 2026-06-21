@@ -13,12 +13,18 @@ import { QueueEvents, Job } from "bullmq";
 import IORedis from "ioredis";
 import rateLimit from "express-rate-limit";
 import swaggerJsdoc from "swagger-jsdoc";
+// Run worker in the same process on free hosting (no separate worker service needed)
+import "./worker.js";
 import swaggerUi from "swagger-ui-express";
 dotenv.config({ quiet: true });
 
 const app = express();
-const port = 3000;
-app.use(cors());
+const port = process.env.PORT || 3000;
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  }),
+);
 app.use(express.json());
 
 const swaggerOptions = {
@@ -64,18 +70,25 @@ const authLimiter = rateLimit({
 
 app.use(limiter);
 
-const db = new pg.Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+const db = new pg.Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+      }
+    : {
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT,
+      },
+);
 db.connect();
 
-const uploadDir = "uploads";
+const uploadDir = process.env.UPLOAD_DIR || "uploads";
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
@@ -464,6 +477,11 @@ app.delete(
       );
       const orgName = orgResult.rows[0]?.name;
 
+      const filesResult = await db.query(
+        "SELECT filename FROM files WHERE org_id = $1",
+        [orgId],
+      );
+
       await createAuditLog(
         orgId,
         req.user.userId,
@@ -476,7 +494,7 @@ app.delete(
 
       for (const file of filesResult.rows) {
         try {
-          await fs.promises.unlink(path.join("uploads", file.filename));
+          await fs.promises.unlink(path.join(uploadDir, file.filename));
         } catch (err) {
           console.error("Failed to delete file from disk:", err);
         }
@@ -1106,7 +1124,7 @@ app.delete(
       await db.query("DELETE FROM files WHERE id = $1", [fileId]);
       await connection.del(`files:${orgId}`);
       try {
-        await fs.promises.unlink(path.join("uploads", file.filename));
+        await fs.promises.unlink(path.join(uploadDir, file.filename));
       } catch (err) {
         console.error("Failed to delete file from disk:", err);
       }
@@ -1175,7 +1193,7 @@ app.get("/files/:fileId/download", authenticateToken, async (req, res) => {
         .json({ error: "You don't have access to this file" });
     }
 
-    res.download(path.join("uploads", file.filename), file.original_name);
+    res.download(path.join(uploadDir, file.filename), file.original_name);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -1250,11 +1268,12 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-const eventsConnection = new IORedis({
-  host: "127.0.0.1",
-  port: 6379,
-  maxRetriesPerRequest: null,
-});
+const eventsConnection = new IORedis(
+  process.env.REDIS_URL || "redis://127.0.0.1:6379",
+  {
+    maxRetriesPerRequest: null,
+  },
+);
 
 const queueEvents = new QueueEvents("file-processing", {
   connection: eventsConnection,
