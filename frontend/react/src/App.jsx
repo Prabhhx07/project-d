@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import Login from "./pages/login";
 import Signup from "./pages/signup";
 import Dashboard from "./pages/dashboard";
@@ -19,6 +20,7 @@ function App() {
           <Route path="/organizations/:id" element={<OrganizationDetail />} />
         </Route>
       </Routes>
+      <Analytics />
     </BrowserRouter>
   );
 }
