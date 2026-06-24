@@ -13,7 +13,6 @@ import { QueueEvents, Job } from "bullmq";
 import IORedis from "ioredis";
 import rateLimit from "express-rate-limit";
 import swaggerJsdoc from "swagger-jsdoc";
-// Run worker in the same process on free hosting (no separate worker service needed)
 import "./worker.js";
 import swaggerUi from "swagger-ui-express";
 dotenv.config({ quiet: true });
