@@ -12,7 +12,13 @@ process.env.JWT_SECRET = "test-secret";
 const mockQuery = jest.fn();
 
 jest.unstable_mockModule("pg", () => ({
-  default: { Pool: jest.fn(() => ({ query: mockQuery, connect: jest.fn() })) },
+  default: {
+    Pool: jest.fn(() => ({
+      query: mockQuery,
+      connect: jest.fn(),
+      on: jest.fn(),
+    })),
+  },
 }));
 
 jest.unstable_mockModule("../queue.js", () => ({
