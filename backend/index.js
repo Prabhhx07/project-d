@@ -83,7 +83,9 @@ const db = new pg.Pool(
         port: process.env.DB_PORT,
       },
 );
-db.connect();
+db.on("error", (err) => {
+  console.error("Unexpected PG pool error:", err);
+});
 
 const uploadDir = process.env.UPLOAD_DIR || "uploads";
 if (!fs.existsSync(uploadDir)) {
